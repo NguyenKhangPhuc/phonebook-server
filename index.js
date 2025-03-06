@@ -101,7 +101,7 @@ app.post("/api/persons", (req, res, next) => {
 app.put("/api/persons/:id", (req, res, next) => {
     const id = req.params.id
     const body = req.body
-    PhoneBook.findByIdAndUpdate({ _id: id }, { number: body.number }, { new: true })
+    PhoneBook.findByIdAndUpdate({ _id: id }, { number: body.number }, { new: true, runValidators: true, context: 'query' })
         .then(result => {
             console.log(result)
             res.json(result)
