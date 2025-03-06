@@ -1,6 +1,9 @@
+require('dotenv').config();
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
+const mongoose = require('mongoose')
+const PhoneBook = require('./models/PhoneBook')
 
 const app = express()
 app.use(express.json())
@@ -15,77 +18,110 @@ app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`)
 })
 
-let phonebooks = [
-    {
-        "id": "1",
-        "name": "Arto Hellas",
-        "number": "040-123456"
-    },
-    {
-        "id": "2",
-        "name": "Ada Lovelace",
-        "number": "39-44-5323523"
-    },
-    {
-        "id": "3",
-        "name": "Dan Abramov",
-        "number": "12-43-234345"
-    },
-    {
-        "id": "4",
-        "name": "Mary Poppendieck",
-        "number": "39-23-6423122"
-    }
-]
+const url = process.env.MONGODB_URI
+console.log(process.env.MONGODB_URI)
+mongoose.connect(url)
+    .then((result) => {
+        console.log('Connected to MongoDB')
+    })
+    .catch(err => {
+        console.log('error connecting to MongoDB', err.message)
+    })
+
+let phonebooks;
 
 app.get("/api/persons", (req, res) => {
-    res.json(phonebooks)
+    PhoneBook.find({})
+        .then(result => {
+            res.json(result)
+            phonebooks = result
+        })
+        .catch(err => console.log(err))
 })
 
-app.get("/info", (req, res) => {
+app.get("/api/info", (req, res) => {
     const currentTime = new Date().toString();
-    console.log(currentTime)
-    res.send(`
+    PhoneBook.find({})
+        .then(result => {
+            console.log(currentTime)
+            res.send(`
         <div>
             <div>
-                Phonebook has info for ${phonebooks.length} people
+                Phonebook has info for ${result.length} people
             </div>
             <div>${currentTime}</div>
         </div>`)
-
+        })
+        .catch(err => console.log(err))
 
 })
 
-app.get("/api/persons/:id", (req, res) => {
+app.get("/api/persons/:id", (req, res, next) => {
     const id = req.params.id
     console.log(id)
-    const phonebook = phonebooks.find(p => p.id == id)
-    if (phonebook) {
-        res.json(phonebook)
-    } else {
-        res.status(404).end()
-    }
+    PhoneBook.findById({ _id: id })
+        .then(result => {
+            res.json(result)
+        })
+        .catch(err => next(err))
 })
 
-app.delete("/api/persons/:id", (req, res) => {
+app.delete("/api/persons/:id", (req, res, next) => {
     const id = req.params.id
+    console.log(id)
     phonebooks = phonebooks.filter(p => p.id != id)
-    res.status(204).end()
+    PhoneBook.findByIdAndDelete({ _id: id })
+        .then((result) => {
+            res.status(204).end()
+        })
+        .catch(err => next(err))
 })
 
-app.post("/api/persons/", (req, res) => {
+app.post("/api/persons", (req, res, next) => {
     const body = req.body
     if (!body.name) {
         res.status(400).json({ error: 'name must be given' })
     } else if (phonebooks.find(p => p.name == body.name)) {
         res.status(400).json({ error: "name must be unique" })
     } else {
-        const phonebook = {
+        const phonebook = new PhoneBook({
             name: body.name,
             number: body.number,
-            id: body.id || String(Math.floor(Math.random() * 100000 + 10))
-        }
-        phonebooks = phonebooks.concat(phonebook)
-        res.json(phonebook)
+        })
+        phonebook.save()
+            .then(result => {
+                console.log(result, " Save success")
+                res.json(result)
+                phonebooks = phonebooks.concat(phonebook)
+            })
+            .catch(err => next(err))
     }
 })
+
+app.put("/api/persons/:id", (req, res, next) => {
+    const id = req.params.id
+    const body = req.body
+    PhoneBook.findByIdAndUpdate({ _id: id }, { number: body.number }, { new: true })
+        .then(result => {
+            console.log(result)
+            res.json(result)
+        })
+        .catch(err => next(err))
+})
+
+
+const unknownEndpoint = (request, response) => {
+    response.status(404).send({ error: 'unknown endpoint' })
+}
+app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+    console.log(error.message)
+    if (error.name === 'CastError') {
+        return response.status(400).send({ error: 'malformatted id' })
+    } else if (error.name === 'ValidationError') {
+        return response.status(400).json({ error: error.message })
+    }
+    next(error)
+}
+app.use(errorHandler)
